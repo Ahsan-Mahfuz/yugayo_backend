@@ -9,8 +9,8 @@ const foodSensitivitiesEnum = z.enum([
   "Fried",
   "Sugar",
   "Caffeine",
-  "Processed food",
-  "Others",
+  "Processed Food",
+  "Other",
 ]);
 
 const symptomsEnum = z.enum([
