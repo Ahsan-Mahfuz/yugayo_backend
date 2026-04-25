@@ -171,7 +171,7 @@ const getAllClinicians = async (
 
   const [clinicians, total] = await Promise.all([
     User.find(filter)
-      .select("name email clinicianProfile")
+      .select("name email clinicianProfile profilePicture")
       .skip(skip)
       .limit(limit),
     User.countDocuments(filter),
