@@ -13,6 +13,7 @@ import { TriggerAnalysisRoutes } from "../modules/triggerAnalysis/triggerAnalysi
 import { AdminRoutes } from "../modules/admin/admin.routes";
 import { ClinicianDashboardRoutes } from "../modules/clinicianDashboard/clinicianDashboard.routes";
 import { UserProfileRoutes } from "../modules/profile/userProfile.routes";
+import { GentleNoteRoutes } from "../modules/gentleNote/gentleNote.routes";
 
 const router = Router();
 
@@ -47,6 +48,7 @@ const moduleRoutes = [
   { path: "/triggers", route: TriggerAnalysisRoutes },
   { path: "/admin", route: AdminRoutes },
   { path: "/clinicians", route: ClinicianDashboardRoutes },
+  { path: "/gentle-note", route: GentleNoteRoutes },
 ];
 
 moduleRoutes.forEach((route) => router.use(route.path, route.route));
