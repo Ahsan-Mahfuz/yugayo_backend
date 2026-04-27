@@ -64,8 +64,8 @@ const getMyConversations = async (
 
   const conversations = await Conversation.find(filter)
     .populate("lastMessage")
-    .populate("patientId", "name email patientProfile")
-    .populate("clinicianId", "name email clinicianProfile")
+    .populate("patientId", "name email patientProfile profilePicture")
+    .populate("clinicianId", "name email clinicianProfile profilePicture")
     .sort({ lastMessageAt: -1, updatedAt: -1 });
 
   const filtered = conversations.filter((conv) => {
