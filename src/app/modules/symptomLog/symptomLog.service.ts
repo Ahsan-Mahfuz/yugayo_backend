@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Types } from "mongoose";
 import { SymptomLog } from "./symptomLog.model";
@@ -5,17 +6,20 @@ import { GutHealthScore } from "../score/score.model";
 import AppError from "../../error/appError";
 import config from "../../config";
 import { ISymptomLogPayload } from "./symptomLog.interface";
+import { FoodLog } from "../foodLogs/foodLogs.model";
 
 const AI_BASE = config.ai_service_url as string;
 
 // ─── Log Symptoms ─────────────────────────────────────────────────────────────
 
 const logSymptoms = async (userId: string, payload: ISymptomLogPayload) => {
+  // ── 1. Get current gut health score ────────────────────────────────────────
   const scoreDoc = await GutHealthScore.findOne({
     userId: new Types.ObjectId(userId),
   });
   const currentScore = scoreDoc?.score ?? 70;
 
+  // ── 2. Call AI to score the symptom log ────────────────────────────────────
   const aiPayload: Record<string, any> = {
     current_score: currentScore,
     symptoms: payload.symptoms,
@@ -41,12 +45,81 @@ const logSymptoms = async (userId: string, payload: ISymptomLogPayload) => {
     throw new AppError(502, `AI symptom log failed: ${err.message}`);
   }
 
+  // ── 3. Update gut health score ─────────────────────────────────────────────
   await GutHealthScore.findOneAndUpdate(
     { userId: new Types.ObjectId(userId) },
     { score: aiResult.updated_score, grade: aiResult.grade },
     { new: true },
   );
 
+  // ── 4. Fetch last 2 days of food logs ──────────────────────────────────────
+  const twoDaysAgo = new Date();
+  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+  twoDaysAgo.setHours(0, 0, 0, 0);
+
+  const recentFoodLogs = await FoodLog.find({
+    userId: new Types.ObjectId(userId),
+    loggedAt: { $gte: twoDaysAgo },
+  }).sort({ loggedAt: 1 });
+
+  // ── 5. Build food_logs payload (flatten all foods from each log) ────────────
+  const foodLogsForCulprit = recentFoodLogs.flatMap((log) =>
+    log.foods
+      .filter((f) => f.usda_id && f.usda_id > 0)
+      .map((f) => ({
+        usda_id: f.usda_id,
+        weight_g: f.quantity, // quantity stored in grams
+        logged_at: log.loggedAt.toISOString(),
+      })),
+  );
+
+  // ── 6. Build symptom_logs payload — one entry per symptom ──────────────────
+  const symptomLoggedAt = payload.loggedAt ?? new Date().toISOString();
+  const symptomLogsForCulprit = payload.symptoms.map((symptom) => ({
+    symptom,
+    intensity: payload.severity,
+    logged_at: symptomLoggedAt,
+  }));
+
+  // ── 7. Call /recommend/symptom_culprit ─────────────────────────────────────
+  let culpritFoods: any[] = [];
+  let culpritMessage: string | undefined;
+
+  if (foodLogsForCulprit.length > 0) {
+    try {
+      const culpritRes = await fetch(`${AI_BASE}/recommend/symptom_culprit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          food_logs: foodLogsForCulprit,
+          symptom_logs: symptomLogsForCulprit,
+        }),
+        signal: AbortSignal.timeout(20_000),
+      });
+
+      if (culpritRes.ok) {
+        const culpritData = await culpritRes.json();
+        culpritMessage = culpritData.message;
+        culpritFoods = (culpritData.culprit_details ?? []).map((item: any) => ({
+          usda_id: item.usda_id,
+          food_name: item.food_name,
+          weight_g: item.weight_g,
+          hours_before: item.hours_before,
+          risk_level: item.risk_level,
+          combined_risk: item.combined_risk,
+          risk_nutrients: item.risk_nutrients ?? [],
+        }));
+      } else {
+        const errText = await culpritRes.text().catch(() => "");
+        console.warn("Culprit API non-OK:", culpritRes.status, errText);
+      }
+    } catch (error) {
+      // Non-fatal — log and continue
+      console.warn("Culprit API call failed (non-fatal):", error);
+    }
+  }
+
+  // ── 8. Save symptom log with culprit data ──────────────────────────────────
   return SymptomLog.create({
     userId: new Types.ObjectId(userId),
     symptoms: payload.symptoms,
@@ -60,9 +133,10 @@ const logSymptoms = async (userId: string, payload: ISymptomLogPayload) => {
     summary: aiResult.summary,
     perSymptomDetails: aiResult.per_symptom_details ?? [],
     noteAnalysis: aiResult.note_analysis ?? null,
+    culpritFoods,
+    culpritMessage,
   });
 };
-
 // ─── Get Single Symptom Log ───────────────────────────────────────────────────
 
 const getSymptomLogById = async (userId: string, logId: string) => {

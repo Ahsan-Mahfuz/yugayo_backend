@@ -13,5 +13,5 @@ export const symptomLogSchema = z.object({
     .min(1, "Select at least one symptom"),
   severity: severityEnum,
   note:      z.string().max(500).trim().optional(),
-  loggedAt:  z.string().optional(), // ISO datetime
+  loggedAt:  z.string().optional(), 
 });

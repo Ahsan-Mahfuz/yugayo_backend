@@ -158,7 +158,7 @@ const manualLog = async (userId: string, payload: IManualFoodLogPayload) => {
     scoreModifier: aiResult.score_modifier ?? 0,
     updatedScore: aiResult.updated_score,
     grade: _gradeFromScore(aiResult.updated_score),
-    summary: aiResult.note ?? "",
+    summary: aiResult?.note ?? "",
     foodDetails: aiResult.results ?? [],
     recommendations: aiResult.recommendations ?? [],
     loggedAt: new Date(),

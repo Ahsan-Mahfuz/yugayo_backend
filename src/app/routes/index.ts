@@ -14,6 +14,8 @@ import { AdminRoutes } from "../modules/admin/admin.routes";
 import { ClinicianDashboardRoutes } from "../modules/clinicianDashboard/clinicianDashboard.routes";
 import { UserProfileRoutes } from "../modules/profile/userProfile.routes";
 import { GentleNoteRoutes } from "../modules/gentleNote/gentleNote.routes";
+import { SafeFoodRoutes } from "../modules/safeFood/safeFood.routes";
+import { SymptomFoodReportRoutes } from "../modules/foodSymptomInsight/foodSymptomInsight.routes";
 
 const router = Router();
 
@@ -49,6 +51,8 @@ const moduleRoutes = [
   { path: "/admin", route: AdminRoutes },
   { path: "/clinicians", route: ClinicianDashboardRoutes },
   { path: "/gentle-note", route: GentleNoteRoutes },
+  { path: "/safe-food", route: SafeFoodRoutes },
+  { path: "/food-symptom-insight", route: SymptomFoodReportRoutes },
 ];
 
 moduleRoutes.forEach((route) => router.use(route.path, route.route));

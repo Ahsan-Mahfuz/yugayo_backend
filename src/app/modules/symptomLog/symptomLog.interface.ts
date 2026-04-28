@@ -1,8 +1,16 @@
 import { Types } from "mongoose";
 
 export type TSymptom =
-  | "Bloating" | "Abdominal Pain" | "Nausea" | "Constipation"
-  | "Heartburn" | "Gas" | "Fatigue" | "Acid Reflux" | "Cramps" | "Diarrhea";
+  | "Bloating"
+  | "Abdominal Pain"
+  | "Nausea"
+  | "Constipation"
+  | "Heartburn"
+  | "Gas"
+  | "Fatigue"
+  | "Acid Reflux"
+  | "Cramps"
+  | "Diarrhea";
 
 export type TSeverity = "Mild" | "Moderate" | "Severe";
 
@@ -33,4 +41,6 @@ export interface ISymptomLog {
 
   createdAt?: Date;
   updatedAt?: Date;
+  culpritFoods?: Record<string, unknown>;
+  culpritMessage?: string;
 }
