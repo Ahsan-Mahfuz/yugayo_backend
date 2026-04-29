@@ -13,11 +13,12 @@ import { FoodTagsService } from "./foodTags.service";
 const generateFoodTags = catchAsync(async (req: Request, res: Response) => {
   const userId = (req as any).user.userId;
   const days = req.query.days ? Number(req.query.days) : 30;
-  const result = await FoodTagsService.generateFoodTags(userId, { days });
+  const symptom = req.query.symptom ? String(req.query.symptom) : undefined;
+  const result = await FoodTagsService.generateFoodTags(userId, { days, symptom });
   sendResponse(res, {
     statusCode: 200,
     success: true,
-    message: "Food trigger analysis generated successfully",
+    message: "Food culprit risk analysis generated successfully",
     data: result,
   });
 });
@@ -28,11 +29,13 @@ const generateFoodTags = catchAsync(async (req: Request, res: Response) => {
  */
 const getMyFoodTags = catchAsync(async (req: Request, res: Response) => {
   const userId = (req as any).user.userId;
-  const result = await FoodTagsService.getMyFoodTags(userId);
+  const days = req.query.days ? Number(req.query.days) : 30;
+  const symptom = req.query.symptom ? String(req.query.symptom) : undefined;
+  const result = await FoodTagsService.getMyFoodTags(userId, { days, symptom });
   sendResponse(res, {
     statusCode: 200,
     success: true,
-    message: "Food trigger analysis retrieved",
+    message: "Food culprit risk analysis retrieved",
     data: result,
   });
 });
@@ -42,11 +45,16 @@ const getMyFoodTags = catchAsync(async (req: Request, res: Response) => {
  * Clinician views a connected patient's food trigger analysis
  */
 const getPatientFoodTags = catchAsync(async (req: Request, res: Response) => {
-  const result = await FoodTagsService.getPatientFoodTags(req.params.patientId);
+  const days = req.query.days ? Number(req.query.days) : 30;
+  const symptom = req.query.symptom ? String(req.query.symptom) : undefined;
+  const result = await FoodTagsService.getPatientFoodTags(req.params.patientId, {
+    days,
+    symptom,
+  });
   sendResponse(res, {
     statusCode: 200,
     success: true,
-    message: "Patient food trigger analysis retrieved",
+    message: "Patient food culprit risk analysis retrieved",
     data: result,
   });
 });
