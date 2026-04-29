@@ -101,9 +101,35 @@ const _gradeFromScore = (score: number): string => {
   return "Poor";
 };
 
+const _resolveClientMeta = (
+  payload: {
+    clientTimezone?: string;
+    clientUtcOffsetMinutes?: number;
+    clientCountry?: string;
+  },
+  requestMeta?: {
+    timezone?: string;
+    utcOffsetMinutes?: number;
+    country?: string;
+  },
+) => ({
+  clientTimezone: payload.clientTimezone ?? requestMeta?.timezone,
+  clientUtcOffsetMinutes:
+    payload.clientUtcOffsetMinutes ?? requestMeta?.utcOffsetMinutes,
+  clientCountry: payload.clientCountry ?? requestMeta?.country,
+});
+
 // ─── 1. Manual Entry ──────────────────────────────────────────────────────────
 
-const manualLog = async (userId: string, payload: IManualFoodLogPayload) => {
+const manualLog = async (
+  userId: string,
+  payload: IManualFoodLogPayload,
+  requestMeta?: {
+    timezone?: string;
+    utcOffsetMinutes?: number;
+    country?: string;
+  },
+) => {
   const currentScore = await _getCurrentScore(userId);
   const foodEntries: IFoodLogEntry[] = [];
 
@@ -148,6 +174,7 @@ const manualLog = async (userId: string, payload: IManualFoodLogPayload) => {
     aiResult.updated_score,
     _gradeFromScore(aiResult.updated_score),
   );
+  const clientMeta = _resolveClientMeta(payload, requestMeta);
 
   return FoodLog.create({
     userId: new Types.ObjectId(userId),
@@ -162,13 +189,22 @@ const manualLog = async (userId: string, payload: IManualFoodLogPayload) => {
     foodDetails: aiResult.results ?? [],
     recommendations: aiResult.recommendations ?? [],
     loggedAt: new Date(),
+    ...clientMeta,
   });
 };
 
 // ─── 2. Voice Entry ───────────────────────────────────────────────────────────
 // POST /food/parse with current_score → returns results + updated_score + note directly
 
-const voiceLog = async (userId: string, payload: IVoiceFoodLogPayload) => {
+const voiceLog = async (
+  userId: string,
+  payload: IVoiceFoodLogPayload,
+  requestMeta?: {
+    timezone?: string;
+    utcOffsetMinutes?: number;
+    country?: string;
+  },
+) => {
   const currentScore = await _getCurrentScore(userId);
 
   const parseRes = await fetch(`${AI_BASE}/food/parse`, {
@@ -210,6 +246,7 @@ const voiceLog = async (userId: string, payload: IVoiceFoodLogPayload) => {
   const scoreImpact = parseData.score_impact ?? 0;
 
   await _updateStoredScore(userId, updatedScore, _gradeFromScore(updatedScore));
+  const clientMeta = _resolveClientMeta(payload, requestMeta);
 
   return FoodLog.create({
     userId: new Types.ObjectId(userId),
@@ -225,6 +262,7 @@ const voiceLog = async (userId: string, payload: IVoiceFoodLogPayload) => {
     foodDetails: [],
     recommendations: [],
     loggedAt: new Date(),
+    ...clientMeta,
   });
 };
 
@@ -233,7 +271,15 @@ const voiceLog = async (userId: string, payload: IVoiceFoodLogPayload) => {
 //       → POST /log/food with product_name directly (skip /food/parse if usda not needed)
 //       → save to DB
 
-const barcodeLog = async (userId: string, payload: IBarcodePayload) => {
+const barcodeLog = async (
+  userId: string,
+  payload: IBarcodePayload,
+  requestMeta?: {
+    timezone?: string;
+    utcOffsetMinutes?: number;
+    country?: string;
+  },
+) => {
   const currentScore = await _getCurrentScore(userId);
 
   // ── Step 1: Scan barcode → product name ───────────────────────────────────
@@ -307,6 +353,7 @@ const barcodeLog = async (userId: string, payload: IBarcodePayload) => {
     aiResult.updated_score,
     _gradeFromScore(aiResult.updated_score),
   );
+  const clientMeta = _resolveClientMeta(payload, requestMeta);
 
   // ── Step 4: Save to DB ────────────────────────────────────────────────────
   return FoodLog.create({
@@ -323,6 +370,7 @@ const barcodeLog = async (userId: string, payload: IBarcodePayload) => {
     foodDetails: aiResult.results ?? [],
     recommendations: aiResult.recommendations ?? [],
     loggedAt: new Date(),
+    ...clientMeta,
   });
 };
 
@@ -336,13 +384,21 @@ const getMyLogs = async (
     page?: number;
     search?: string;
     limit?: number;
+    timezoneOffsetMinutes?: number | string;
   },
 ) => {
   const filter: Record<string, any> = { userId: new Types.ObjectId(userId) };
 
   if (query.date) {
-    const start = new Date(`${query.date}T00:00:00.000Z`);
-    const end = new Date(`${query.date}T23:59:59.999Z`);
+    const offsetMinutes = Number(query.timezoneOffsetMinutes ?? 0);
+    const [year, month, day] = query.date.split("-").map(Number);
+    const startUtcMs =
+      Date.UTC(year, month - 1, day, 0, 0, 0, 0) - offsetMinutes * 60 * 1000;
+    const endUtcMs =
+      Date.UTC(year, month - 1, day, 23, 59, 59, 999) -
+      offsetMinutes * 60 * 1000;
+    const start = new Date(startUtcMs);
+    const end = new Date(endUtcMs);
     filter.loggedAt = { $gte: start, $lte: end };
   }
   if (query.mealType) filter.mealType = query.mealType;

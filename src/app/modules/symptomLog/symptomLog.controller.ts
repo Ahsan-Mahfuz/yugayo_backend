@@ -4,13 +4,25 @@ import catchAsync from "../../utilities/catchAsync";
 import sendResponse from "../../utilities/sendResponse";
 import { SymptomLogService } from "./symptomLog.service";
 
+const extractClientMeta = (req: Request) => ({
+  timezone: (req.headers["x-timezone"] as string) || undefined,
+  utcOffsetMinutes: req.headers["x-utc-offset-minutes"]
+    ? Number(req.headers["x-utc-offset-minutes"])
+    : undefined,
+  country: (req.headers["x-country-code"] as string) || undefined,
+});
+
 /**
  * POST /api/v1/symptom-log
  * Body: { symptoms, severity, note?, loggedAt? }
  */
 const logSymptoms = catchAsync(async (req: Request, res: Response) => {
   const userId = (req as any).user.userId;
-  const result = await SymptomLogService.logSymptoms(userId, req.body);
+  const result = await SymptomLogService.logSymptoms(
+    userId,
+    req.body,
+    extractClientMeta(req),
+  );
   sendResponse(res, {
     statusCode: 201,
     success: true,

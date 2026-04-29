@@ -19,6 +19,9 @@ export interface ISymptomLogPayload {
   severity: TSeverity;
   note?: string;
   loggedAt?: string; // ISO datetime, defaults to now
+  clientTimezone?: string;
+  clientUtcOffsetMinutes?: number;
+  clientCountry?: string;
 }
 
 export interface ISymptomLog {
@@ -29,6 +32,9 @@ export interface ISymptomLog {
   severity: TSeverity;
   note?: string;
   loggedAt: Date;
+  clientTimezone?: string;
+  clientUtcOffsetMinutes?: number;
+  clientCountry?: string;
 
   // AI response
   previousScore: number;

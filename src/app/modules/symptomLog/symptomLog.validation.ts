@@ -13,5 +13,8 @@ export const symptomLogSchema = z.object({
     .min(1, "Select at least one symptom"),
   severity: severityEnum,
   note:      z.string().max(500).trim().optional(),
-  loggedAt:  z.string().optional(), 
+  loggedAt:  z.string().optional(),
+  clientTimezone: z.string().min(2).max(100).optional(),
+  clientUtcOffsetMinutes: z.number().int().min(-840).max(840).optional(),
+  clientCountry: z.string().min(2).max(3).optional(),
 });

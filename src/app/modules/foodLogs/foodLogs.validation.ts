@@ -31,12 +31,18 @@ export const manualFoodLogSchema = z.object({
     )
     .min(1, "At least one food item is required"),
   mealType: mealTypeEnum,
+  clientTimezone: z.string().min(2).max(100).optional(),
+  clientUtcOffsetMinutes: z.number().int().min(-840).max(840).optional(),
+  clientCountry: z.string().min(2).max(3).optional(),
 });
 
 // ─── Voice Entry ──────────────────────────────────────────────────────────────
 
 export const voiceFoodLogSchema = z.object({
   text: z.string().min(3, "Voice text is too short").max(500).trim(),
+  clientTimezone: z.string().min(2).max(100).optional(),
+  clientUtcOffsetMinutes: z.number().int().min(-840).max(840).optional(),
+  clientCountry: z.string().min(2).max(3).optional(),
 });
 
 // ─── Barcode Entry ────────────────────────────────────────────────────────────
@@ -49,4 +55,7 @@ export const barcodeFoodLogSchema = z.object({
   mealType: mealTypeEnum,
   quantity: z.number().positive().optional(),
   unit: unitEnum.optional(),
+  clientTimezone: z.string().min(2).max(100).optional(),
+  clientUtcOffsetMinutes: z.number().int().min(-840).max(840).optional(),
+  clientCountry: z.string().min(2).max(3).optional(),
 });

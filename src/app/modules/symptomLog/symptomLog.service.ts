@@ -10,9 +10,35 @@ import { FoodLog } from "../foodLogs/foodLogs.model";
 
 const AI_BASE = config.ai_service_url as string;
 
+const _resolveClientMeta = (
+  payload: {
+    clientTimezone?: string;
+    clientUtcOffsetMinutes?: number;
+    clientCountry?: string;
+  },
+  requestMeta?: {
+    timezone?: string;
+    utcOffsetMinutes?: number;
+    country?: string;
+  },
+) => ({
+  clientTimezone: payload.clientTimezone ?? requestMeta?.timezone,
+  clientUtcOffsetMinutes:
+    payload.clientUtcOffsetMinutes ?? requestMeta?.utcOffsetMinutes,
+  clientCountry: payload.clientCountry ?? requestMeta?.country,
+});
+
 // ─── Log Symptoms ─────────────────────────────────────────────────────────────
 
-const logSymptoms = async (userId: string, payload: ISymptomLogPayload) => {
+const logSymptoms = async (
+  userId: string,
+  payload: ISymptomLogPayload,
+  requestMeta?: {
+    timezone?: string;
+    utcOffsetMinutes?: number;
+    country?: string;
+  },
+) => {
   // ── 1. Get current gut health score ────────────────────────────────────────
   const scoreDoc = await GutHealthScore.findOne({
     userId: new Types.ObjectId(userId),
@@ -120,6 +146,7 @@ const logSymptoms = async (userId: string, payload: ISymptomLogPayload) => {
   }
 
   // ── 8. Save symptom log with culprit data ──────────────────────────────────
+  const clientMeta = _resolveClientMeta(payload, requestMeta);
   return SymptomLog.create({
     userId: new Types.ObjectId(userId),
     symptoms: payload.symptoms,
@@ -135,6 +162,7 @@ const logSymptoms = async (userId: string, payload: ISymptomLogPayload) => {
     noteAnalysis: aiResult.note_analysis ?? null,
     culpritFoods,
     culpritMessage,
+    ...clientMeta,
   });
 };
 // ─── Get Single Symptom Log ───────────────────────────────────────────────────
@@ -152,13 +180,25 @@ const getSymptomLogById = async (userId: string, logId: string) => {
 
 const getMySymptomLogs = async (
   userId: string,
-  query: { date?: string; page?: number; limit?: number },
+  query: {
+    date?: string;
+    page?: number;
+    limit?: number;
+    timezoneOffsetMinutes?: number | string;
+  },
 ) => {
   const filter: Record<string, any> = { userId: new Types.ObjectId(userId) };
 
   if (query.date) {
-    const start = new Date(`${query.date}T00:00:00.000Z`);
-    const end = new Date(`${query.date}T23:59:59.999Z`);
+    const offsetMinutes = Number(query.timezoneOffsetMinutes ?? 0);
+    const [year, month, day] = query.date.split("-").map(Number);
+    const startUtcMs =
+      Date.UTC(year, month - 1, day, 0, 0, 0, 0) - offsetMinutes * 60 * 1000;
+    const endUtcMs =
+      Date.UTC(year, month - 1, day, 23, 59, 59, 999) -
+      offsetMinutes * 60 * 1000;
+    const start = new Date(startUtcMs);
+    const end = new Date(endUtcMs);
     filter.loggedAt = { $gte: start, $lte: end };
   }
 

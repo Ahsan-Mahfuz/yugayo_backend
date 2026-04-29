@@ -46,6 +46,9 @@ const SymptomLogSchema = new Schema<ISymptomLogDocument>(
     // Culprit foods from /recommend/symptom_culprit
     culpritFoods: { type: [CulpritFoodSchema], default: [] },
     culpritMessage: { type: String },
+    clientTimezone: { type: String },
+    clientUtcOffsetMinutes: { type: Number },
+    clientCountry: { type: String },
   },
   { timestamps: true },
 );

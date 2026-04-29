@@ -52,6 +52,9 @@ const FoodLogSchema = new Schema<IFoodLogDocument>(
     recommendations: [{ type: String }],
 
     loggedAt: { type: Date, default: Date.now, index: true },
+    clientTimezone: { type: String },
+    clientUtcOffsetMinutes: { type: Number },
+    clientCountry: { type: String },
   },
   { timestamps: true }
 );

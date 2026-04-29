@@ -28,12 +28,18 @@ export interface IManualFoodItem {
 export interface IManualFoodLogPayload {
   foods: IManualFoodItem[];
   mealType: TMealType;
+  clientTimezone?: string;
+  clientUtcOffsetMinutes?: number;
+  clientCountry?: string;
 }
 
 // ─── Voice Entry ──────────────────────────────────────────────────────────────
 
 export interface IVoiceFoodLogPayload {
   text: string;
+  clientTimezone?: string;
+  clientUtcOffsetMinutes?: number;
+  clientCountry?: string;
 }
 
 // ─── Barcode Entry ────────────────────────────────────────────────────────────
@@ -43,6 +49,9 @@ export interface IBarcodePayload {
   mealType: TMealType;
   quantity?: number; // optional override (default 100)
   unit?: TUnit; // optional override (default "g")
+  clientTimezone?: string;
+  clientUtcOffsetMinutes?: number;
+  clientCountry?: string;
 }
 
 // ─── Food Log Entry stored in DB ──────────────────────────────────────────────
@@ -76,6 +85,9 @@ export interface IFoodLog {
   recommendations: string[];
 
   loggedAt: Date;
+  clientTimezone?: string;
+  clientUtcOffsetMinutes?: number;
+  clientCountry?: string;
   createdAt?: Date;
   updatedAt?: Date;
 }

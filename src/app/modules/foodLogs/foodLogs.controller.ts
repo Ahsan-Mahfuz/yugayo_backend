@@ -4,13 +4,25 @@ import catchAsync from "../../utilities/catchAsync";
 import sendResponse from "../../utilities/sendResponse";
 import { FoodLogService } from "./foodLogs.service";
 
+const extractClientMeta = (req: Request) => ({
+  timezone: (req.headers["x-timezone"] as string) || undefined,
+  utcOffsetMinutes: req.headers["x-utc-offset-minutes"]
+    ? Number(req.headers["x-utc-offset-minutes"])
+    : undefined,
+  country: (req.headers["x-country-code"] as string) || undefined,
+});
+
 /**
  * POST /api/v1/food-log/manual
  * Body: { foods: [{ foodName, quantity, unit }], mealType }
  */
 const manualLog = catchAsync(async (req: Request, res: Response) => {
   const userId = (req as any).user.userId;
-  const result = await FoodLogService.manualLog(userId, req.body);
+  const result = await FoodLogService.manualLog(
+    userId,
+    req.body,
+    extractClientMeta(req),
+  );
   sendResponse(res, {
     statusCode: 201,
     success: true,
@@ -25,7 +37,11 @@ const manualLog = catchAsync(async (req: Request, res: Response) => {
  */
 const voiceLog = catchAsync(async (req: Request, res: Response) => {
   const userId = (req as any).user.userId;
-  const result = await FoodLogService.voiceLog(userId, req.body);
+  const result = await FoodLogService.voiceLog(
+    userId,
+    req.body,
+    extractClientMeta(req),
+  );
   sendResponse(res, {
     statusCode: 201,
     success: true,
@@ -46,7 +62,11 @@ const voiceLog = catchAsync(async (req: Request, res: Response) => {
  */
 const barcodeLog = catchAsync(async (req: Request, res: Response) => {
   const userId = (req as any).user.userId;
-  const result = await FoodLogService.barcodeLog(userId, req.body);
+  const result = await FoodLogService.barcodeLog(
+    userId,
+    req.body,
+    extractClientMeta(req),
+  );
   sendResponse(res, {
     statusCode: 201,
     success: true,
