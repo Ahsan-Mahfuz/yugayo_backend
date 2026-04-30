@@ -59,8 +59,35 @@ const getPatientFoodTags = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+/**
+ * GET /api/v1/food-tags/clinician/patients/:patientId
+ * Clinician retrieves same trigger data shape as patient /food-tags/my
+ * Only allowed for active clinician-patient connection
+ */
+const getClinicianPatientFoodTags = catchAsync(
+  async (req: Request, res: Response) => {
+    const clinicianId = (req as any).user.userId;
+    const days = req.query.days ? Number(req.query.days) : 30;
+    const symptom = req.query.symptom ? String(req.query.symptom) : undefined;
+
+    const result = await FoodTagsService.getConnectedPatientFoodTags(
+      clinicianId,
+      req.params.patientId,
+      { days, symptom },
+    );
+
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Patient food culprit risk analysis retrieved",
+      data: result,
+    });
+  },
+);
+
 export const FoodTagsController = {
   generateFoodTags,
   getMyFoodTags,
   getPatientFoodTags,
+  getClinicianPatientFoodTags,
 };

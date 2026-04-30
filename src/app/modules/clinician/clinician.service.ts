@@ -9,6 +9,7 @@ import { SymptomLog } from "../symptomLog/symptomLog.model";
 import { DietPlan } from "../dietPlan/dietPlan.model";
 import { SymptomLogService } from "../symptomLog/symptomLog.service";
 import AppError from "../../error/appError";
+import { FoodTagsService } from "../foodTags/foodTags.service";
 import { FoodTags } from "../foodTags/foodTags.model";
 
 // ─── Helper: verify clinician is connected to patient ────────────────────────
@@ -52,7 +53,7 @@ const getMyPatients = async (
 
   const [patients, total] = await Promise.all([
     User.find(userFilter)
-      .select("name email patientProfile createdAt")
+      .select("name email patientProfile profilePicture  createdAt")
       .skip(skip)
       .limit(limit),
     User.countDocuments(userFilter),

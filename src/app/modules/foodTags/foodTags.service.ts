@@ -2,6 +2,8 @@
 import { Types } from "mongoose";
 import { FoodLog } from "../foodLogs/foodLogs.model";
 import { SymptomLog } from "../symptomLog/symptomLog.model";
+import { Connection } from "../connection/connection.model";
+import AppError from "../../error/appError";
 
 const getRiskCategory = (percentage: number): "High" | "Medium" | "Low" => {
   if (percentage >= 70) return "High";
@@ -138,8 +140,27 @@ const getPatientFoodTags = async (patientId: string, query: TGenerateOptions = {
   return generateFoodTags(patientId, query);
 };
 
+const getConnectedPatientFoodTags = async (
+  clinicianId: string,
+  patientId: string,
+  query: TGenerateOptions = {},
+) => {
+  const conn = await Connection.findOne({
+    clinicianId: new Types.ObjectId(clinicianId),
+    patientId: new Types.ObjectId(patientId),
+    status: "active",
+  });
+
+  if (!conn) {
+    throw new AppError(403, "No active connection with this patient");
+  }
+
+  return generateFoodTags(patientId, query);
+};
+
 export const FoodTagsService = {
   generateFoodTags,
   getMyFoodTags,
   getPatientFoodTags,
+  getConnectedPatientFoodTags,
 };

@@ -11,4 +11,15 @@ const router = express.Router();
  */
 router.get("/my", auth("patient"), FoodTagsController.getMyFoodTags);
 
+/**
+ * GET /api/v1/food-tags/clinician/patients/:patientId
+ * Clinician gets same trigger data as patient /food-tags/my
+ * Query: ?days=30&symptom=Bloating
+ */
+router.get(
+  "/patients/:patientId",
+  auth("clinician"),
+  FoodTagsController.getClinicianPatientFoodTags,
+);
+
 export const FoodTagsRoutes = router;
