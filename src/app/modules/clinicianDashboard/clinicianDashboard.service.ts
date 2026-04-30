@@ -101,7 +101,7 @@ const getRecentAlerts = async (
       .sort({ loggedAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate("userId", "name email"),
+      .populate("userId", "name email profilePicture"),
     SymptomLog.countDocuments({
       userId: { $in: patientIds },
       severity: "Severe",
@@ -116,6 +116,7 @@ const getRecentAlerts = async (
         _id: patient._id,
         name: patient.name,
         email: patient.email,
+        profileImage: patient.profilePicture ?? null,
       },
       symptoms: log.symptoms,
       severity: log.severity,
@@ -148,11 +149,11 @@ const getRecentActivity = async (
     FoodLog.find({ userId: { $in: patientIds } })
       .sort({ loggedAt: -1 })
       .limit(limit * 2)
-      .populate("userId", "name email"),
+      .populate("userId", "name email profilePicture"),
     SymptomLog.find({ userId: { $in: patientIds } })
       .sort({ loggedAt: -1 })
       .limit(limit * 2)
-      .populate("userId", "name email"),
+      .populate("userId", "name email profilePicture"),
   ]);
 
   // Merge and sort by loggedAt desc
@@ -165,7 +166,12 @@ const getRecentActivity = async (
       return {
         type: "food",
         activityId: f._id,
-        patient: { _id: patient._id, name: patient.name, email: patient.email },
+        patient: {
+          _id: patient._id,
+          name: patient.name,
+          email: patient.email,
+          profileImage: patient.profilePicture ?? null,
+        },
         description: `Logged meal: ${foodNames}`,
         mealType: f.mealType,
         loggedAt: f.loggedAt,
@@ -177,7 +183,12 @@ const getRecentActivity = async (
       return {
         type: "symptom",
         activityId: s._id,
-        patient: { _id: patient._id, name: patient.name, email: patient.email },
+        patient: {
+          _id: patient._id,
+          name: patient.name,
+          email: patient.email,
+          profileImage: patient.profilePicture ?? null,
+        },
         description: `Logged symptoms: ${s.symptoms.join(", ")}`,
         severity: s.severity,
         loggedAt: s.loggedAt,
@@ -271,7 +282,7 @@ const getMyPatients = async (
 
   // Fetch all matching patients first — status filter applied after score enrichment
   const patients = await User.find(userFilter).select(
-    "name email patientProfile createdAt",
+    "name email profilePicture patientProfile createdAt",
   );
 
   const enriched = await Promise.all(
@@ -297,6 +308,7 @@ const getMyPatients = async (
         _id: p._id,
         name: p.name,
         email: p.email,
+        profileImage: (p as any).profilePicture ?? null,
         age: (p as any).patientProfile?.age,
         weight: (p as any).patientProfile?.weight,
         gutScore,
@@ -620,11 +632,14 @@ const getPatientWeeklyTrend = async (
 // ─── Helper: time ago string ──────────────────────────────────────────────────
 const _timeAgo = (date: Date): string => {
   const diff = Date.now() - new Date(date).getTime();
-  const mins = Math.floor(diff / 60000);
+  const safeDiff = Math.max(0, diff);
+  const mins = Math.floor(safeDiff / 60000);
+  if (mins <= 0) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs} hours ago`;
-  return `${Math.floor(hrs / 24)} days ago`;
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
 };
 
 export const ClinicianDashboardService = {

@@ -330,44 +330,71 @@ const getPatientTriggers = async (
     "Fruits and Fruit Juices",
   ];
 
-  // Map each day to which categories were consumed
+  // Map each day to which categories were consumed.
+  // We correlate category labels with both logged food names and culprit foods.
   const dayToCategoriesMap: Record<string, Set<string>> = {};
+
+  const CATEGORY_KEYWORD_HINTS: Record<string, string[]> = {
+    sweets: ["sweet", "sugar", "dessert", "candy", "chocolate", "cake", "cookie"],
+    "fast foods": ["burger", "pizza", "fries", "fried", "fast food", "shawarma"],
+    "cereal grains and pasta": [
+      "rice",
+      "bread",
+      "wheat",
+      "grain",
+      "pasta",
+      "noodle",
+      "oats",
+      "flour",
+    ],
+    "fruits and fruit juices": ["fruit", "apple", "banana", "orange", "mango", "juice"],
+    "finfish and shellfish products": ["fish", "salmon", "tuna", "shrimp", "prawn", "shellfish"],
+    "dairy and egg products": ["milk", "cheese", "yogurt", "butter", "cream", "egg"],
+  };
+
+  const getCategoryKeywords = (category: string) => {
+    const baseWords = category
+      .toLowerCase()
+      .split(/[\s,/&-]+/)
+      .map((w) => w.trim())
+      .filter((w) => w.length > 2 && !["and", "with", "from", "the"].includes(w));
+
+    const hinted = CATEGORY_KEYWORD_HINTS[category.toLowerCase()] ?? [];
+    return [...new Set([...baseWords, ...hinted])];
+  };
+
+  const matchCategories = (text: string): string[] => {
+    const normalizedText = text.toLowerCase();
+    return CHART_GROUPS.filter((cat: string) =>
+      getCategoryKeywords(cat).some((kw) => normalizedText.includes(kw)),
+    );
+  };
+
+  const addCategoriesToDay = (dayKey: string, categories: string[]) => {
+    if (!dayToCategoriesMap[dayKey]) dayToCategoriesMap[dayKey] = new Set();
+    categories.forEach((cat) => dayToCategoriesMap[dayKey].add(cat));
+  };
 
   foodLogs.forEach((log: any) => {
     const dayKey = new Date(log.loggedAt).toDateString();
-    if (!dayToCategoriesMap[dayKey]) dayToCategoriesMap[dayKey] = new Set();
-
     log.foods.forEach((food: any) => {
-      const foodName = (
-        food.raw_food ||
-        food.food_description ||
-        ""
-      ).toLowerCase();
+      const sourceText = [food.raw_food, food.food_description]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (!sourceText) return;
+      addCategoriesToDay(dayKey, matchCategories(sourceText));
+    });
+  });
 
-      // Match food name to a category using keyword hints
-      CHART_GROUPS.forEach((cat: string) => {
-        const catLower = cat.toLowerCase();
-        // Simple keyword match — category word appears in food name or vice versa
-        const catWords = catLower
-          .split(/[\s,]+/)
-          .filter((w: string) => w.length > 3);
-        if (catWords.some((w: string) => foodName.includes(w))) {
-          dayToCategoriesMap[dayKey].add(cat);
-        }
-      });
-
-      // Also match via usda_id → category from FoodTags if available
-      if (food.usda_id && savedTags?.top_categories) {
-        // usda_ids_used tells us which ids were in which categories
-        // We can approximate: if this usda_id was in the analysed set, assign its category
-        const usedIds: number[] = savedTags.usda_ids_used ?? [];
-        if (usedIds.includes(food.usda_id)) {
-          // Find which category this food was most likely part of
-          savedTags.top_categories.forEach((c: any) => {
-            dayToCategoriesMap[dayKey].add(c.category);
-          });
-        }
-      }
+  // Culprit foods are strongly correlated with symptoms, so use them as
+  // additional evidence for food-group mapping on each symptom day.
+  symptomLogs.forEach((log: any) => {
+    const dayKey = new Date(log.loggedAt).toDateString();
+    (log.culpritFoods ?? []).forEach((food: any) => {
+      const sourceText = String(food?.food_name ?? "").toLowerCase();
+      if (!sourceText) return;
+      addCategoriesToDay(dayKey, matchCategories(sourceText));
     });
   });
 
@@ -377,18 +404,28 @@ const getPatientTriggers = async (
       .filter(([, cats]) => cats.has(group))
       .map(([day]) => day);
 
-    const countSymptoms = (symptoms: string[]) =>
-      symptomLogs.filter(
+    const countSymptoms = (symptoms: string[]) => {
+      const normalizedTargets = symptoms.map((s) => s.toLowerCase());
+      return symptomLogs.filter(
         (s) =>
           daysWithGroup.includes(new Date(s.loggedAt).toDateString()) &&
-          s.symptoms.some((sym) => symptoms.includes(sym)),
+          s.symptoms.some((sym) =>
+            normalizedTargets.includes(String(sym).toLowerCase()),
+          ),
       ).length;
+    };
 
     return {
       foodGroup: group,
-      Bloating: countSymptoms(["Bloating", "Gas", "Abdominal Pain"]),
-      Gas: countSymptoms(["Gas"]),
-      Pain: countSymptoms(["Abdominal Pain"]),
+      Bloating: countSymptoms(["Bloating"]),
+      Gas: countSymptoms(["Gas", "Flatulence"]),
+      Pain: countSymptoms([
+        "Abdominal Pain",
+        "Stomach Pain",
+        "Pain",
+        "Cramps",
+        "Cramping",
+      ]),
     };
   });
 
