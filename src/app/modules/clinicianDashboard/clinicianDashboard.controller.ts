@@ -192,6 +192,22 @@ const getPatientWeeklyTrend = catchAsync(
   },
 );
 
+// ─── Patient food notes (AI personalised notes after meals) ─────────────────
+const getPatientFoodNotes = catchAsync(async (req: Request, res: Response) => {
+  const clinicianId = getClinicianId(req);
+  const result = await ClinicianDashboardService.getPatientFoodNotes(
+    clinicianId,
+    req.params.patientId,
+    req.query as Record<string, unknown>,
+  );
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Patient food notes fetched",
+    data: result,
+  });
+});
+
 export const ClinicianDashboardController = {
   getDashboardSummary,
   getRecentAlerts,
@@ -203,4 +219,5 @@ export const ClinicianDashboardController = {
   getPatientSymptoms,
   getPatientTriggers,
   getPatientWeeklyTrend,
+  getPatientFoodNotes,
 };

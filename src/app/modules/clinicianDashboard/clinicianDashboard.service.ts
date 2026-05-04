@@ -9,6 +9,7 @@ import { DietPlan } from "../dietPlan/dietPlan.model";
 import { SymptomLogService } from "../symptomLog/symptomLog.service";
 import AppError from "../../error/appError";
 import { FoodTags } from "../foodTags/foodTags.model";
+import { FoodLogService } from "../foodLogs/foodLogs.service";
 
 // ─── Helper: verify clinician is connected to patient ────────────────────────
 const _verifyConnection = async (clinicianId: string, patientId: string) => {
@@ -629,6 +630,16 @@ const getPatientWeeklyTrend = async (
   return SymptomLogService.getWeeklyTrend(patientId);
 };
 
+/** AI meal notes saved for this patient (same shape as patient GET /food-log/food-notes). */
+const getPatientFoodNotes = async (
+  clinicianId: string,
+  patientId: string,
+  query: Record<string, unknown>,
+) => {
+  await _verifyConnection(clinicianId, patientId);
+  return FoodLogService.getMyFoodNotes(patientId, query);
+};
+
 // ─── Helper: time ago string ──────────────────────────────────────────────────
 const _timeAgo = (date: Date): string => {
   const diff = Date.now() - new Date(date).getTime();
@@ -653,4 +664,5 @@ export const ClinicianDashboardService = {
   getPatientSymptoms,
   getPatientTriggers,
   getPatientWeeklyTrend,
+  getPatientFoodNotes,
 };

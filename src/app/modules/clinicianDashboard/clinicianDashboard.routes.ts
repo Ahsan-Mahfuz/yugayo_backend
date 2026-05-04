@@ -88,6 +88,15 @@ router.get(
 );
 
 /**
+ * GET /api/v1/clinicians/patients/:patientId/food-notes
+ * Same query as patient GET /food-log/food-notes: page, limit, days (7 | 30)
+ */
+router.get(
+  "/patients/:patientId/food-notes",
+  ClinicianDashboardController.getPatientFoodNotes,
+);
+
+/**
  * GET /api/v1/clinician/patients/:patientId/symptoms
  * Query: date (YYYY-MM-DD), page, limit
  */
