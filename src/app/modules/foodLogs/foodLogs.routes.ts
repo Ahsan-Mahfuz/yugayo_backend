@@ -43,6 +43,12 @@ router.post(
 );
 
 /**
+ * GET /api/v1/food-log/food-notes
+ * Saved personalised notes from past meal logs; newest first.
+ */
+router.get("/food-notes", FoodLogController.getMyFoodNotes);
+
+/**
  * GET /api/v1/food-log
  * Query: date, mealType, page, limit
  */

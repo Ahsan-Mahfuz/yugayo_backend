@@ -89,9 +89,26 @@ const getMyLogs = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+/**
+ * GET /api/v1/food-log/food-notes?page=1&limit=20&days=7
+ * Query: days optional — 7 or 30 = only notes with createdAt in the last 7 / 30 days (rolling).
+ * Saved food_note rows for this user, newest first (createdAt -1).
+ */
+const getMyFoodNotes = catchAsync(async (req: Request, res: Response) => {
+  const userId = (req as any).user.userId;
+  const result = await FoodLogService.getMyFoodNotes(userId, req.query as any);
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Food notes retrieved successfully",
+    data: result,
+  });
+});
+
 export const FoodLogController = {
   manualLog,
   voiceLog,
   barcodeLog,
   getMyLogs,
+  getMyFoodNotes,
 };

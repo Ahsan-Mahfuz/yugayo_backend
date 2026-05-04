@@ -47,6 +47,21 @@ export const voiceFoodLogSchema = z.object({
 
 // ─── Barcode Entry ────────────────────────────────────────────────────────────
 
+export const foodNotesQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+  /** Last N calendar days from now (rolling window). Only 7 or 30 accepted; other values are ignored. */
+  days: z.preprocess(
+    (val) => {
+      if (val === undefined || val === "" || val === null) return undefined;
+      const n = typeof val === "string" ? parseInt(val, 10) : Number(val);
+      if (n === 7 || n === 30) return n;
+      return undefined;
+    },
+    z.union([z.literal(7), z.literal(30)]).optional(),
+  ),
+});
+
 export const barcodeFoodLogSchema = z.object({
   barcode: z
     .string()
