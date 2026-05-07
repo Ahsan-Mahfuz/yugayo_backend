@@ -6,6 +6,8 @@ import { SymptomLog } from "../symptomLog/symptomLog.model";
 import { Connection } from "../connection/connection.model";
 import AppError from "../../error/appError";
 import config from "../../config";
+import { IFoodLogEntry } from "../foodLogs/foodLogs.interface";
+import { foodNameForAiPayload } from "../foodLogs/foodEntryDisplayName";
 
 const AI_BASE = config.ai_service_url as string;
 
@@ -52,20 +54,19 @@ const generateTriggerAnalysis = async (
   // Each food item in a log entry becomes a separate entry
   // Foods in the same log share the same logged_at → grouped as composite meal
   const foodLogsPayload: Array<{
-    usda_id: number;
+    food_name: string;
     weight_g: number;
     logged_at: string;
   }> = [];
 
   foodLogs.forEach((log: any) => {
-    log.foods.forEach((food: any) => {
-      if (food.usda_id && food.usda_id > 0) {
-        foodLogsPayload.push({
-          usda_id: food.usda_id,
-          weight_g: food.quantity ?? 100,
-          logged_at: new Date(log.loggedAt).toISOString(),
-        });
-      }
+    const foods = (log.foods ?? []) as IFoodLogEntry[];
+    foods.forEach((food) => {
+      foodLogsPayload.push({
+        food_name: foodNameForAiPayload(food),
+        weight_g: food.quantity ?? 100,
+        logged_at: new Date(log.loggedAt).toISOString(),
+      });
     });
   });
 
@@ -90,7 +91,7 @@ const generateTriggerAnalysis = async (
   if (!foodLogsPayload.length) {
     throw new AppError(
       422,
-      "No valid USDA food IDs found. Try logging more meals with barcode or manual entry.",
+      "No food items found in the selected period. Try logging more meals first.",
     );
   }
 

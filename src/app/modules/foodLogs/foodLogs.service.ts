@@ -14,6 +14,10 @@ import {
   TMealType,
 } from "./foodLogs.interface";
 import { foodNotesQuerySchema } from "./foodLogs.validation";
+import {
+  displayNameForFoodEntry,
+  foodNameForAiPayload,
+} from "./foodEntryDisplayName";
 
 const AI_BASE = config.ai_service_url as string;
 
@@ -38,20 +42,11 @@ const _toGrams = (qty: number, unit: string): number => {
   return Math.round(qty * (CONVERSIONS[unit.toLowerCase().trim()] ?? 1));
 };
 
-const _displayNameForFoodEntry = (f: IFoodLogEntry): string => {
-  const raw = f.raw_food?.trim();
-  if (raw) return raw;
-  const desc = f.food_description?.trim();
-  if (desc) return desc;
-  if (f.usda_id > 0) return String(f.usda_id);
-  return "";
-};
-
 /** Same order as logged foods, e.g. "Banana Greek yogurt" for /recommend/food_note `target_food`. */
 const _combinedTargetFoodString = (foods: IFoodLogEntry[]): string => {
   const parts: string[] = [];
   for (const f of foods) {
-    const n = _displayNameForFoodEntry(f).trim();
+    const n = displayNameForFoodEntry(f).trim();
     if (n.length > 0) parts.push(n);
   }
   return parts.join(" ");
@@ -85,7 +80,7 @@ const _fetchHistoryForFoodNote = async (userId: string) => {
 
   const food_logs = foodLogs.flatMap((log) =>
     ((log.foods as IFoodLogEntry[]) ?? []).map((food) => ({
-      food_name: _displayNameForFoodEntry(food) || "food",
+      food_name: foodNameForAiPayload(food),
       weight_g: _toGrams(food.quantity ?? 100, food.unit ?? "g"),
       logged_at: new Date(log.loggedAt as Date).toISOString(),
     })),

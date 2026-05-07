@@ -5,6 +5,8 @@ import { FoodLog } from "../foodLogs/foodLogs.model";
 import { SymptomLog } from "../symptomLog/symptomLog.model";
 import AppError from "../../error/appError";
 import config from "../../config";
+import { IFoodLogEntry } from "../foodLogs/foodLogs.interface";
+import { foodNameForAiPayload } from "../foodLogs/foodEntryDisplayName";
 
 const AI_BASE = config.ai_service_url as string;
 
@@ -39,15 +41,13 @@ const generateSafeFoods = async (userId: string) => {
     loggedAt: { $gte: threeMonthsAgo },
   }).sort({ loggedAt: 1 });
 
-  // ── 3. Build food_logs payload ────────────────────────────────────────────
+  // ── 3. Build food_logs payload (AI expects food_name, not usda_id) ───────
   const foodLogsPayload = foodLogs.flatMap((log) =>
-    log.foods
-      .filter((f) => f.usda_id && f.usda_id > 0)
-      .map((f) => ({
-        usda_id: f.usda_id,
-        weight_g: f.quantity,
-        logged_at: log.loggedAt.toISOString(),
-      })),
+    (log.foods as IFoodLogEntry[]).map((f) => ({
+      food_name: foodNameForAiPayload(f),
+      weight_g: f.quantity,
+      logged_at: log.loggedAt.toISOString(),
+    })),
   );
 
   // ── 4. Build symptom_logs payload ─────────────────────────────────────────

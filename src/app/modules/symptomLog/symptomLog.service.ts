@@ -7,6 +7,8 @@ import AppError from "../../error/appError";
 import config from "../../config";
 import { ISymptomLogPayload } from "./symptomLog.interface";
 import { FoodLog } from "../foodLogs/foodLogs.model";
+import { IFoodLogEntry } from "../foodLogs/foodLogs.interface";
+import { foodNameForAiPayload } from "../foodLogs/foodEntryDisplayName";
 
 const AI_BASE = config.ai_service_url as string;
 
@@ -88,15 +90,13 @@ const logSymptoms = async (
     loggedAt: { $gte: twoDaysAgo },
   }).sort({ loggedAt: 1 });
 
-  // ── 5. Build food_logs payload (flatten all foods from each log) ────────────
+  // ── 5. Build food_logs payload (AI expects food_name, not usda_id) ───────────
   const foodLogsForCulprit = recentFoodLogs.flatMap((log) =>
-    log.foods
-      .filter((f) => f.usda_id && f.usda_id > 0)
-      .map((f) => ({
-        usda_id: f.usda_id,
-        weight_g: f.quantity, // quantity stored in grams
-        logged_at: log.loggedAt.toISOString(),
-      })),
+    (log.foods as IFoodLogEntry[]).map((f) => ({
+      food_name: foodNameForAiPayload(f),
+      weight_g: f.quantity,
+      logged_at: log.loggedAt.toISOString(),
+    })),
   );
 
   // ── 6. Build symptom_logs payload — one entry per symptom ──────────────────

@@ -6,6 +6,8 @@ import { GentleNote } from "./gentleNote.model";
 import AppError from "../../error/appError";
 import config from "../../config";
 import { IGentleNoteAIResponse } from "./gentleNote.interface";
+import { IFoodLogEntry } from "../foodLogs/foodLogs.interface";
+import { foodNameForAiPayload } from "../foodLogs/foodEntryDisplayName";
 
 const AI_BASE = config.ai_service_url as string;
 const PERIOD_DAYS = 15;
@@ -48,14 +50,14 @@ const generateGentleNote = async (userId: string) => {
       .lean(),
   ]);
 
-  // ── 2. Build AI food_logs payload ─────────────────────────────────────────
-  const aiFood: { usda_id: number; weight_g: number; logged_at: string }[] = [];
+  // ── 2. Build AI food_logs payload (names only; aligns with other /recommend/* calls)
+  const aiFood: { food_name: string; weight_g: number; logged_at: string }[] =
+    [];
 
   for (const log of foodLogs) {
-    for (const food of log.foods as any[]) {
-      if (!food.usda_id || food.usda_id === 0) continue; // skip unresolved
+    for (const food of log.foods as IFoodLogEntry[]) {
       aiFood.push({
-        usda_id: food.usda_id,
+        food_name: foodNameForAiPayload(food),
         weight_g: _toGrams(food.quantity ?? 100, food.unit ?? "g"),
         logged_at: (log.loggedAt as Date).toISOString(),
       });
