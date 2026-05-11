@@ -6,9 +6,14 @@ import { GutHealthScore } from "../score/score.model";
 import AppError from "../../error/appError";
 import config from "../../config";
 import { ISymptomLogPayload } from "./symptomLog.interface";
-import { FoodLog } from "../foodLogs/foodLogs.model";
+import { FoodLog, IFoodLogDocument } from "../foodLogs/foodLogs.model";
 import { IFoodLogEntry } from "../foodLogs/foodLogs.interface";
 import { foodNameForAiPayload } from "../foodLogs/foodEntryDisplayName";
+import {
+  persistFoodNoteForSymptomCulprit,
+  requestFoodNoteForMealLog,
+  type TFoodNoteClientPayload,
+} from "../foodLogs/foodLogs.service";
 
 const AI_BASE = config.ai_service_url as string;
 
@@ -29,6 +34,189 @@ const _resolveClientMeta = (
     payload.clientUtcOffsetMinutes ?? requestMeta?.utcOffsetMinutes,
   clientCountry: payload.clientCountry ?? requestMeta?.country,
 });
+
+const _hoursBetweenFoodAndSymptom = (foodLoggedAt: Date, symptomAt: Date) =>
+  (symptomAt.getTime() - foodLoggedAt.getTime()) / (3600 * 1000);
+
+/** Match culprit `usda_id` + timing to the most plausible meal row in recent logs. */
+const _resolveFoodLogIdForCulprit = (
+  symptomAt: Date,
+  culprit: { usda_id?: number | null; hours_before?: number | null },
+  recentFoodLogs: IFoodLogDocument[],
+): Types.ObjectId | null => {
+  const uid = culprit.usda_id;
+  if (uid == null || Number.isNaN(Number(uid))) return null;
+
+  const withMatch = recentFoodLogs.filter((log) =>
+    (log.foods as IFoodLogEntry[]).some((f) => f.usda_id === uid),
+  );
+  if (withMatch.length === 0) return null;
+
+  const beforeSymptom = withMatch.filter((log) => log.loggedAt <= symptomAt);
+  const pool = beforeSymptom.length > 0 ? beforeSymptom : withMatch;
+
+  const targetHb =
+    typeof culprit.hours_before === "number" &&
+    !Number.isNaN(culprit.hours_before)
+      ? culprit.hours_before
+      : null;
+
+  if (targetHb === null) {
+    const ranked = [...pool].sort(
+      (a, b) => b.loggedAt.getTime() - a.loggedAt.getTime(),
+    );
+    return ranked[0]!._id as Types.ObjectId;
+  }
+
+  let best: IFoodLogDocument | null = null;
+  let bestDiff = Infinity;
+  for (const log of pool) {
+    const h = _hoursBetweenFoodAndSymptom(log.loggedAt, symptomAt);
+    const diff = Math.abs(h - targetHb);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = log;
+    }
+  }
+  return best ? (best._id as Types.ObjectId) : null;
+};
+
+/** e.g. "Oatmeal, Banana, and Greek yogurt is associated with gas." → "Oatmeal, Banana, and Greek yogurt" */
+const _targetFoodSubjectFromCulpritMessage = (
+  culpritMessage: string | undefined,
+): string | null => {
+  const m = culpritMessage?.trim();
+  if (!m) return null;
+  const r =
+    m.match(/^(.+?)\s+is\s+associated\b/i) ?? m.match(/^(.+?)\s+is\s+/i);
+  const s = r?.[1]?.trim();
+  return s && s.length > 0 ? s : null;
+};
+
+/** Prefer culprit-message wording; mirror symptom severity into `severity` when AI leaves it blank. */
+const _presentSymptomFoodNote = (
+  food_notes: TFoodNoteClientPayload,
+  culpritMessage: string | undefined,
+  symptomSeverity: string,
+): TFoodNoteClientPayload => {
+  const subject = _targetFoodSubjectFromCulpritMessage(culpritMessage);
+  if ("unavailable" in food_notes && food_notes.unavailable) {
+    const next = { ...food_notes };
+    if (subject) next.target_food = subject;
+    return next;
+  }
+  const p = food_notes as Extract<TFoodNoteClientPayload, { cached: boolean }>;
+  let out = { ...p };
+  if (subject) out = { ...out, target_food: subject };
+  if (!String(out.severity ?? "").trim() && symptomSeverity.trim())
+    out = { ...out, severity: symptomSeverity.trim() };
+  return out;
+};
+
+/** Append symptom_culprit `message` so GET /food-log/food-notes shows the same context as POST /symptom-log. */
+const _mergeCulpritMessageIntoFoodNote = (
+  payload: TFoodNoteClientPayload,
+  culpritMessage: string | undefined,
+): TFoodNoteClientPayload => {
+  const extra = culpritMessage?.trim();
+  if (!extra) return payload;
+
+  if ("unavailable" in payload && payload.unavailable) {
+    return {
+      target_food: payload.target_food,
+      case: "with_symptoms",
+      severity: "",
+      note: extra,
+      cached: false,
+    };
+  }
+
+  const p = payload as Extract<TFoodNoteClientPayload, { cached: boolean }>;
+  const base = p.note.trim();
+  const note = base ? `${base}\n\n${extra}` : extra;
+  return { ...p, note };
+};
+
+/**
+ * After symptom log: one FoodNote per resolved meal (deduped), same /recommend/food_note
+ * text/severity as meal-triggered notes.
+ */
+const _persistSymptomCulpritFoodNotes = async (
+  userId: string,
+  symptomLogId: Types.ObjectId,
+  symptoms: string[],
+  symptomSeverity: string,
+  symptomAt: Date,
+  culpritFoods: any[],
+  culpritMessage: string | undefined,
+  recentFoodLogs: IFoodLogDocument[],
+) => {
+  if (!culpritFoods.length) return;
+  const seenFoodLogId = new Set<string>();
+  let persistedMealNote = false;
+  try {
+    for (const cf of culpritFoods) {
+      const foodLogId = _resolveFoodLogIdForCulprit(symptomAt, cf, recentFoodLogs);
+      if (!foodLogId) continue;
+      const idKey = String(foodLogId);
+      if (seenFoodLogId.has(idKey)) continue;
+      seenFoodLogId.add(idKey);
+
+      const log = recentFoodLogs.find((l) => String(l._id) === idKey);
+      if (!log) continue;
+
+      let food_notes = await requestFoodNoteForMealLog(userId, log);
+      food_notes = _mergeCulpritMessageIntoFoodNote(food_notes, culpritMessage);
+      food_notes = _presentSymptomFoodNote(
+        food_notes,
+        culpritMessage,
+        symptomSeverity,
+      );
+      await persistFoodNoteForSymptomCulprit(userId, {
+        symptomLogId,
+        symptoms,
+        symptomSeverity,
+        culpritFoods,
+        culpritMessage,
+        foodLogId,
+        food_notes,
+      });
+      persistedMealNote = true;
+    }
+
+    if (!persistedMealNote) {
+      const label =
+        _targetFoodSubjectFromCulpritMessage(culpritMessage) ??
+        (culpritFoods
+          .map((c: { food_name?: string }) => String(c.food_name ?? "").trim())
+          .filter(Boolean)
+          .join(" + ") || "Food association");
+      let food_notes: TFoodNoteClientPayload = {
+        target_food: label,
+        unavailable: true,
+      };
+      food_notes = _mergeCulpritMessageIntoFoodNote(food_notes, culpritMessage);
+      food_notes = _presentSymptomFoodNote(
+        food_notes,
+        culpritMessage,
+        symptomSeverity,
+      );
+      await persistFoodNoteForSymptomCulprit(userId, {
+        symptomLogId,
+        symptoms,
+        symptomSeverity,
+        culpritFoods,
+        culpritMessage,
+        food_notes,
+      });
+    }
+  } catch (e) {
+    console.warn(
+      "Failed to persist symptom culprit food notes (non-fatal):",
+      e,
+    );
+  }
+};
 
 // ─── Log Symptoms ─────────────────────────────────────────────────────────────
 
@@ -145,14 +333,15 @@ const logSymptoms = async (
     }
   }
 
-  // ── 8. Save symptom log with culprit data ──────────────────────────────────
+  // ── 8. Save symptom log + food notes for culprits (same feed as GET /food-log/food-notes)
   const clientMeta = _resolveClientMeta(payload, requestMeta);
-  return SymptomLog.create({
+  const symptomAt = payload.loggedAt ? new Date(payload.loggedAt) : new Date();
+  const doc = await SymptomLog.create({
     userId: new Types.ObjectId(userId),
     symptoms: payload.symptoms,
     severity: payload.severity,
     note: payload.note,
-    loggedAt: payload.loggedAt ? new Date(payload.loggedAt) : new Date(),
+    loggedAt: symptomAt,
     previousScore: aiResult.previous_score,
     scorePenalty: aiResult.score_penalty,
     updatedScore: aiResult.updated_score,
@@ -164,6 +353,19 @@ const logSymptoms = async (
     culpritMessage,
     ...clientMeta,
   });
+
+  await _persistSymptomCulpritFoodNotes(
+    userId,
+    doc._id as Types.ObjectId,
+    payload.symptoms,
+    payload.severity,
+    symptomAt,
+    culpritFoods,
+    culpritMessage,
+    recentFoodLogs,
+  );
+
+  return doc;
 };
 // ─── Get Single Symptom Log ───────────────────────────────────────────────────
 

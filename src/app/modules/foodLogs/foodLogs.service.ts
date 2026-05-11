@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Types } from "mongoose";
 import { FoodLog, IFoodLogDocument } from "./foodLogs.model";
-import { FoodNote } from "./foodNote.model";
+import { FoodNote, IFoodNote } from "./foodNote.model";
 import { SymptomLog } from "../symptomLog/symptomLog.model";
 import { GutHealthScore } from "../score/score.model";
 import AppError from "../../error/appError";
@@ -171,6 +171,7 @@ const _persistFoodNote = async (
 ) => {
   const base = {
     userId: new Types.ObjectId(userId),
+    source: "meal" as const,
     foodLogId,
     target_food: food_notes.target_food,
     cached: "unavailable" in food_notes ? false : food_notes.cached,
@@ -205,6 +206,118 @@ const _finalizeFoodLogResponse = async (userId: string, doc: IFoodLogDocument) =
     // DB write must not fail meal logging
   }
   return { food_notes };
+};
+
+/**
+ * Same POST /recommend/food_note personalization as after a meal log, using the
+ * combined meal label (e.g. "Banana Greek yogurt"). Mirrors `_foodNoteForNewLog`.
+ * Never throws.
+ */
+export const requestFoodNoteForMealLog = async (
+  userId: string,
+  log: Pick<IFoodLogDocument, "foods">,
+): Promise<TFoodNoteClientPayload> => {
+  const target_food = _combinedTargetFoodString(log.foods as IFoodLogEntry[]);
+  if (target_food.trim().length < 2) {
+    return { target_food: target_food.trim() || "food", unavailable: true };
+  }
+  const trimmed = target_food.trim();
+  try {
+    const history = await _fetchHistoryForFoodNote(userId);
+    const parsed = await _requestFoodNote({
+      food_logs: history.food_logs,
+      symptom_logs: history.symptom_logs,
+      target_food: trimmed,
+    });
+    if (parsed) {
+      return {
+        target_food: parsed.target_food ?? trimmed,
+        case: String(parsed.case ?? ""),
+        severity: String(parsed.severity ?? ""),
+        note: String(parsed.note ?? ""),
+        cached: Boolean(parsed.cached),
+      };
+    }
+  } catch {
+    // fallthrough
+  }
+  return { target_food: trimmed, unavailable: true };
+};
+
+/** Persists like `_persistFoodNote`; errors are swallowed so callers never fail hard. */
+export const persistFoodNoteForMeal = async (
+  userId: string,
+  foodLogId: Types.ObjectId,
+  payload: TFoodNoteClientPayload,
+) => {
+  try {
+    await _persistFoodNote(userId, foodLogId, payload);
+  } catch {
+    // DB write must not fail symptom / meal flows
+  }
+};
+
+/** Symptom log → FoodNote: same AI note fields plus symptom/culprit snapshot (like POST /symptom-log). */
+export const persistFoodNoteForSymptomCulprit = async (
+  userId: string,
+  args: {
+    symptomLogId: Types.ObjectId;
+    symptoms: string[];
+    symptomSeverity: string;
+    culpritFoods: any[];
+    culpritMessage?: string;
+    foodLogId?: Types.ObjectId | null;
+    food_notes: TFoodNoteClientPayload;
+  },
+) => {
+  try {
+    const {
+      food_notes,
+      symptomLogId,
+      symptoms,
+      symptomSeverity,
+      culpritFoods,
+      culpritMessage,
+      foodLogId,
+    } = args;
+    const uid = new Types.ObjectId(userId);
+    const base: Omit<IFoodNote, "case" | "severity" | "note"> & {
+      case?: string;
+      severity?: string;
+      note?: string;
+    } = {
+      userId: uid,
+      source: "symptom",
+      symptomLogId,
+      symptoms,
+      symptomSeverity,
+      culpritFoods: culpritFoods ?? [],
+      culpritMessage,
+      target_food: food_notes.target_food,
+      cached: "unavailable" in food_notes ? false : food_notes.cached,
+      aiUnavailable: "unavailable" in food_notes && food_notes.unavailable === true,
+      ...(foodLogId != null ? { foodLogId } : {}),
+    };
+
+    if (!("unavailable" in food_notes)) {
+      const sev = String(food_notes.severity ?? "").trim();
+      await FoodNote.create({
+        ...base,
+        case: food_notes.case,
+        severity: sev || symptomSeverity,
+        note: food_notes.note,
+      });
+    } else {
+      await FoodNote.create({
+        ...base,
+        ...(symptomSeverity.trim()
+          ? { severity: symptomSeverity.trim() }
+          : {}),
+      });
+    }
+  } catch {
+    // DB write must not fail symptom flow
+  }
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -661,7 +774,7 @@ const getMyFoodNotes = async (userId: string, query: Record<string, unknown>) =>
   return {
     food_notes: items.map((row) => ({
       _id: String(row._id),
-      foodLogId: String(row.foodLogId),
+      foodLogId: row.foodLogId != null ? String(row.foodLogId) : null,
       target_food: row.target_food,
       case: row.case,
       severity: row.severity,
@@ -669,6 +782,15 @@ const getMyFoodNotes = async (userId: string, query: Record<string, unknown>) =>
       cached: row.cached,
       aiUnavailable: row.aiUnavailable,
       createdAt: row.createdAt,
+      source: row.source ?? "meal",
+      ...(row.source === "symptom" && {
+        symptomLogId:
+          row.symptomLogId != null ? String(row.symptomLogId) : undefined,
+        symptoms: row.symptoms ?? [],
+        symptomSeverity: row.symptomSeverity,
+        culpritFoods: row.culpritFoods ?? [],
+        culpritMessage: row.culpritMessage,
+      }),
     })),
     pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
   };
