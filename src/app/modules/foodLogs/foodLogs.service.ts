@@ -205,7 +205,10 @@ const _finalizeFoodLogResponse = async (userId: string, doc: IFoodLogDocument) =
   } catch {
     // DB write must not fail meal logging
   }
-  return { food_notes };
+  return {
+    food_notes,
+    ...(doc.food_score != null && { food_score: doc.food_score }),
+  };
 };
 
 /**
@@ -322,6 +325,125 @@ export const persistFoodNoteForSymptomCulprit = async (
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Meal-level food score from AI JSON (`/log/food`, `/food/parse`, etc.).
+ * Handles snake/camel/Pascal keys, numeric strings, optional `{ data }` wrappers.
+ */
+const _extractMealFoodScore = (raw: unknown): number | undefined => {
+  const tryVal = (v: unknown): number | undefined => {
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string" && v.trim() !== "") {
+      const n = Number(v.trim());
+      if (Number.isFinite(n)) return n;
+    }
+    return undefined;
+  };
+
+  const scanObject = (o: Record<string, unknown>): number | undefined => {
+    const directKeys = [
+      "food_score",
+      "foodScore",
+      "Food_score",
+      "FoodScore",
+      "FOOD_SCORE",
+      "meal_food_score",
+      "gut_food_score",
+    ] as const;
+    for (const k of directKeys) {
+      const n = tryVal(o[k]);
+      if (n !== undefined) return n;
+    }
+    const keys = [
+      ...Reflect.ownKeys(o).filter((k): k is string => typeof k === "string"),
+      ...Object.keys(o),
+    ];
+    const seen = new Set<string>();
+    for (const key of keys) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const norm = key.replace(/[-_\s]/g, "").toLowerCase();
+      if (norm === "foodscore" || norm === "mealfoodscore" || norm === "gutfoodscore") {
+        const n = tryVal(o[key]);
+        if (n !== undefined) return n;
+      }
+    }
+    return undefined;
+  };
+
+  if (raw == null) return undefined;
+  if (Array.isArray(raw)) {
+    for (const el of raw) {
+      const n = _extractMealFoodScore(el);
+      if (n !== undefined) return n;
+    }
+    return undefined;
+  }
+  if (typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const fromRoot = scanObject(o);
+  if (fromRoot !== undefined) return fromRoot;
+
+  const inner = o.data ?? o.body ?? o.payload ?? o.result;
+  if (inner != null && typeof inner === "object") {
+    return _extractMealFoodScore(inner);
+  }
+  return undefined;
+};
+
+/**
+ * Regex-scan raw JSON when parsed object does not expose `food_score` (encoding /
+ * odd keys). Handles `"food_score"`, `"FoodScore"`, and small gaps between
+ * `food` … `score` (e.g. rare Unicode homoglyphs in keys).
+ */
+const _extractMealFoodScoreFromRawJson = (rawJson: string): number | undefined => {
+  if (!rawJson || typeof rawJson !== "string") return undefined;
+  const normalized = rawJson.replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-");
+  const patterns = [
+    /food[\s\S]{0,32}?score["']?\s*:\s*([-+]?\d+(?:\.\d+)?)/i,
+    /["']food[_\s-]*score["']\s*:\s*([-+]?\d+(?:\.\d+)?)/i,
+  ];
+  for (const re of patterns) {
+    const m = normalized.match(re);
+    if (!m) continue;
+    const n = Number(m[1]);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+};
+
+/** Write normalised `food_score` onto a parsed AI object when discoverable. */
+const _ensureFoodScoreOnParsed = (
+  parsed: Record<string, unknown>,
+  rawJsonText: string,
+): void => {
+  const fs =
+    _extractMealFoodScore(parsed) ??
+    _extractMealFoodScoreFromRawJson(rawJsonText);
+  if (fs !== undefined) parsed.food_score = fs;
+};
+
+/** Normalise AI numeric values (JSON number, string, bigint). */
+const _coerceAiNumber = (v: unknown): number | undefined => {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "bigint") return Number(v);
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v.trim());
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+};
+
+/**
+ * $set `food_score` on the collection document so it is always stored in MongoDB,
+ * even if a stale compiled Mongoose model would otherwise strip unknown paths.
+ */
+const _persistFoodScoreOnDocument = async (
+  docId: Types.ObjectId,
+  value: number | null,
+): Promise<void> => {
+  await FoodLog.collection.updateOne({ _id: docId }, { $set: { food_score: value } });
+};
+
 const _getCurrentScore = async (userId: string): Promise<number> => {
   const scoreDoc = await GutHealthScore.findOne({
     userId: new Types.ObjectId(userId),
@@ -386,7 +508,16 @@ const _callLogFood = async (
 
       throw new AppError(502, detail);
     }
-    return await res.json();
+    const text = await res.text();
+    const trimmed = text.replace(/^\uFEFF/, "").trim();
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      throw new AppError(502, "AI /log/food returned invalid JSON");
+    }
+    _ensureFoodScoreOnParsed(data, trimmed);
+    return data;
   } catch (err: unknown) {
     if (err instanceof AppError) throw err;
     const msg = err instanceof Error ? err.message : "Network error";
@@ -427,12 +558,21 @@ const _resolveClientMeta = (
     utcOffsetMinutes?: number;
     country?: string;
   },
-) => ({
-  clientTimezone: payload.clientTimezone ?? requestMeta?.timezone,
-  clientUtcOffsetMinutes:
-    payload.clientUtcOffsetMinutes ?? requestMeta?.utcOffsetMinutes,
-  clientCountry: payload.clientCountry ?? requestMeta?.country,
-});
+) => {
+  const base = {
+    clientTimezone: payload.clientTimezone ?? requestMeta?.timezone,
+    clientUtcOffsetMinutes:
+      payload.clientUtcOffsetMinutes ?? requestMeta?.utcOffsetMinutes,
+    clientCountry: payload.clientCountry ?? requestMeta?.country,
+  };
+  return Object.fromEntries(
+    Object.entries(base).filter(([, v]) => v !== undefined),
+  ) as {
+    clientTimezone?: string;
+    clientUtcOffsetMinutes?: number;
+    clientCountry?: string;
+  };
+};
 
 // ─── 1. Manual Entry ──────────────────────────────────────────────────────────
 
@@ -447,20 +587,44 @@ const manualLog = async (
 ) => {
   const currentScore = await _getCurrentScore(userId);
   const foodEntries: IFoodLogEntry[] = [];
+  let lastParsePayload: unknown;
 
   for (const item of payload.foods) {
+    const parseBody: Record<string, unknown> = {
+      text: item.foodName,
+      top_k: 1,
+    };
+    if (payload.foods.length === 1) {
+      parseBody.current_score = currentScore;
+    }
+
     const parseRes = await fetch(`${AI_BASE}/food/parse`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: item.foodName, top_k: 1 }),
+      body: JSON.stringify(parseBody),
       signal: AbortSignal.timeout(15_000),
     });
+
+
 
     if (!parseRes.ok)
       throw new AppError(502, `Food parse failed for "${item.foodName}"`);
 
-    const parseData = await parseRes.json();
-    const topResult = parseData.results?.[0];
+    const parseText = await parseRes.text();
+    const parseTrimmed = parseText.replace(/^\uFEFF/, "").trim();
+    let parseData: Record<string, unknown>;
+    try {
+      parseData = JSON.parse(parseTrimmed) as Record<string, unknown>;
+    } catch {
+      throw new AppError(502, `Food parse returned invalid JSON for "${item.foodName}"`);
+    }
+    _ensureFoodScoreOnParsed(parseData, parseTrimmed);
+    lastParsePayload = parseData;
+    const topResult = (
+      parseData.results as
+        | { usda_id?: number; normalised_name?: string }[]
+        | undefined
+    )?.[0];
     if (!topResult?.usda_id)
       throw new AppError(422, `Could not identify food: "${item.foodName}"`);
 
@@ -489,7 +653,21 @@ const manualLog = async (
     aiResult.updated_score,
     _gradeFromScore(aiResult.updated_score),
   );
+
   const clientMeta = _resolveClientMeta(payload, requestMeta);
+  const lastParseStr =
+    lastParsePayload != null && typeof lastParsePayload === "object"
+      ? JSON.stringify(lastParsePayload)
+      : "";
+  const resolvedFoodScore: number | null =
+    _coerceAiNumber((aiResult as Record<string, unknown>).food_score) ??
+    _extractMealFoodScore(aiResult) ??
+    _extractMealFoodScoreFromRawJson(JSON.stringify(aiResult)) ??
+    (payload.foods.length === 1
+      ? _extractMealFoodScore(lastParsePayload) ??
+        _extractMealFoodScoreFromRawJson(lastParseStr)
+      : undefined) ??
+    null;
 
   const doc = await FoodLog.create({
     userId: new Types.ObjectId(userId),
@@ -506,6 +684,8 @@ const manualLog = async (
     loggedAt: new Date(),
     ...clientMeta,
   });
+  await _persistFoodScoreOnDocument(doc._id as Types.ObjectId, resolvedFoodScore);
+  (doc as unknown as { food_score: number | null }).food_score = resolvedFoodScore;
   return _finalizeFoodLogResponse(userId, doc);
 };
 
@@ -538,9 +718,18 @@ const voiceLog = async (
     throw new AppError(502, `Food parse failed: ${errText}`);
   }
 
-  const parseData = await parseRes.json();
+  const parseText = await parseRes.text();
+  const parseTrimmed = parseText.replace(/^\uFEFF/, "").trim();
+  let parseData: Record<string, unknown>;
+  try {
+    parseData = JSON.parse(parseTrimmed) as Record<string, unknown>;
+  } catch {
+    throw new AppError(502, "Food parse returned invalid JSON");
+  }
+  _ensureFoodScoreOnParsed(parseData, parseTrimmed);
 
-  if (!parseData.results?.length) {
+  const results = parseData.results as unknown[] | undefined;
+  if (!results?.length) {
     throw new AppError(
       422,
       "No foods detected in the voice input. Please try again.",
@@ -550,7 +739,7 @@ const voiceLog = async (
   const detectedMealType: TMealType =
     (parseData.meal_type as TMealType) ?? "Snack";
 
-  const foodEntries: IFoodLogEntry[] = parseData.results.map((f: any) => ({
+  const foodEntries: IFoodLogEntry[] = (results as any[]).map((f: any) => ({
     usda_id: f.usda_id,
     quantity: f.weight_g ?? 100,
     unit: "g" as const,
@@ -558,11 +747,17 @@ const voiceLog = async (
     raw_food: f.normalised_name,
   }));
 
-  const updatedScore = parseData.updated_score ?? currentScore;
-  const scoreImpact = parseData.score_impact ?? 0;
+  const updatedScore = (parseData.updated_score as number) ?? currentScore;
+  const scoreImpact = (parseData.score_impact as number) ?? 0;
 
   await _updateStoredScore(userId, updatedScore, _gradeFromScore(updatedScore));
   const clientMeta = _resolveClientMeta(payload, requestMeta);
+  const resolvedFoodScore: number | null =
+    _coerceAiNumber(parseData.food_score) ??
+    _extractMealFoodScore(parseData) ??
+    _extractMealFoodScoreFromRawJson(parseTrimmed) ??
+    _extractMealFoodScoreFromRawJson(JSON.stringify(parseData)) ??
+    null;
 
   const doc = await FoodLog.create({
     userId: new Types.ObjectId(userId),
@@ -574,12 +769,14 @@ const voiceLog = async (
     scoreModifier: scoreImpact,
     updatedScore,
     grade: _gradeFromScore(updatedScore),
-    summary: parseData.note ?? "",
-    foodDetails: [],
+    summary: (parseData.note as string) ?? "",
+    foodDetails: Array.isArray(parseData.results) ? parseData.results : [],
     recommendations: [],
     loggedAt: new Date(),
     ...clientMeta,
   });
+  await _persistFoodScoreOnDocument(doc._id as Types.ObjectId, resolvedFoodScore);
+  (doc as unknown as { food_score: number | null }).food_score = resolvedFoodScore;
   return _finalizeFoodLogResponse(userId, doc);
 };
 
@@ -624,21 +821,32 @@ const barcodeLog = async (
   let usda_id = 0;
   let normalisedName = productName;
 
-  console.log("==========================", barcodeData);
-
+  let barcodeParsePayload: unknown = undefined;
   try {
     const parseRes = await fetch(`${AI_BASE}/food/parse`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: productName, top_k: 1 }),
+      body: JSON.stringify({
+        text: productName,
+        top_k: 1,
+        current_score: currentScore,
+      }),
       signal: AbortSignal.timeout(15_000),
     });
     if (parseRes.ok) {
-      const parseData = await parseRes.json();
-      const topResult = parseData.results?.[0];
-      if (topResult?.usda_id) {
-        usda_id = topResult.usda_id;
-        normalisedName = topResult.normalised_name ?? productName;
+      const parseText = await parseRes.text();
+      const parseTrimmed = parseText.replace(/^\uFEFF/, "").trim();
+      try {
+        const parseData = JSON.parse(parseTrimmed) as Record<string, unknown>;
+        _ensureFoodScoreOnParsed(parseData, parseTrimmed);
+        barcodeParsePayload = parseData;
+        const topResult = (parseData.results as { usda_id?: number }[] | undefined)?.[0];
+        if (topResult?.usda_id) {
+          usda_id = topResult.usda_id;
+          normalisedName = (topResult as { normalised_name?: string }).normalised_name ?? productName;
+        }
+      } catch {
+        // ignore invalid parse JSON
       }
     }
   } catch {
@@ -671,6 +879,17 @@ const barcodeLog = async (
     _gradeFromScore(aiResult.updated_score),
   );
   const clientMeta = _resolveClientMeta(payload, requestMeta);
+  const barcodeParseStr =
+    barcodeParsePayload != null && typeof barcodeParsePayload === "object"
+      ? JSON.stringify(barcodeParsePayload)
+      : "";
+  const resolvedFoodScore: number | null =
+    _coerceAiNumber((aiResult as Record<string, unknown>).food_score) ??
+    _extractMealFoodScore(aiResult) ??
+    _extractMealFoodScoreFromRawJson(JSON.stringify(aiResult)) ??
+    _extractMealFoodScore(barcodeParsePayload) ??
+    _extractMealFoodScoreFromRawJson(barcodeParseStr) ??
+    null;
 
   // ── Step 4: Save to DB ────────────────────────────────────────────────────
   const doc = await FoodLog.create({
@@ -689,6 +908,8 @@ const barcodeLog = async (
     loggedAt: new Date(),
     ...clientMeta,
   });
+  await _persistFoodScoreOnDocument(doc._id as Types.ObjectId, resolvedFoodScore);
+  (doc as unknown as { food_score: number | null }).food_score = resolvedFoodScore;
   return _finalizeFoodLogResponse(userId, doc);
 };
 
@@ -736,10 +957,17 @@ const getMyLogs = async (
   const limit = query.limit ?? 20;
   const skip = (page - 1) * limit;
 
-  const [logs, total] = await Promise.all([
+  const [docs, total] = await Promise.all([
     FoodLog.find(filter).sort({ loggedAt: -1 }).skip(skip).limit(limit),
     FoodLog.countDocuments(filter),
   ]);
+
+  const logs = docs.map((doc) => {
+    const o = doc.toObject() as Record<string, unknown> & {
+      food_score?: number;
+    };
+    return { ...o, food_score: o.food_score ?? null };
+  });
 
   return {
     logs,

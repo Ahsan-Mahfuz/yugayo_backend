@@ -84,6 +84,9 @@ export interface IFoodLog {
   foodDetails: Record<string, unknown>[];
   recommendations: string[];
 
+  /** Meal-level gut impact score from AI (`/log/food`, `/food/parse`); null if unknown. */
+  food_score?: number | 0;
+
   loggedAt: Date;
   clientTimezone?: string;
   clientUtcOffsetMinutes?: number;
