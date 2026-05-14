@@ -113,7 +113,10 @@ const _presentSymptomFoodNote = (
   return out;
 };
 
-/** Append symptom_culprit `message` so GET /food-log/food-notes shows the same context as POST /symptom-log. */
+/**
+ * When meal AI note is unavailable, use symptom_culprit `message` as `note`.
+ * Otherwise keep meal `note` as-is — association text lives in `culpritMessage` on the document.
+ */
 const _mergeCulpritMessageIntoFoodNote = (
   payload: TFoodNoteClientPayload,
   culpritMessage: string | undefined,
@@ -131,10 +134,7 @@ const _mergeCulpritMessageIntoFoodNote = (
     };
   }
 
-  const p = payload as Extract<TFoodNoteClientPayload, { cached: boolean }>;
-  const base = p.note.trim();
-  const note = base ? `${base}\n\n${extra}` : extra;
-  return { ...p, note };
+  return payload;
 };
 
 /**

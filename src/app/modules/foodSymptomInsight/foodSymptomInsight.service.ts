@@ -84,9 +84,10 @@ const _buildReport = async (userId: string, sinceDate: Date) => {
     // Combined food name string  e.g. "Egg, whole, cooked, fried, Bananas, raw"
     const combinedFoodName = culprit_foods.map((f) => f.food_name).join(", ");
 
+
     const message =
       culprit_foods.length > 0
-        ? `${combinedFoodName} triggered ${symptom} ${timesTriggered} out of ${totalLogged} time${totalLogged !== 1 ? "s" : ""} (${percentage}%)`
+        ? `${combinedFoodName} was associated with ${symptom} ${timesTriggered} out of ${totalLogged} time${totalLogged !== 1 ? "s" : ""} (${percentage}%)`
         : `No culprit foods identified for ${symptom} in this period`;
 
     return {

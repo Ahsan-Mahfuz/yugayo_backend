@@ -771,6 +771,9 @@ const getMyFoodNotes = async (userId: string, query: Record<string, unknown>) =>
     FoodNote.countDocuments(filter),
   ]);
 
+
+  console.log("items=========================", items);
+
   return {
     food_notes: items.map((row) => ({
       _id: String(row._id),
