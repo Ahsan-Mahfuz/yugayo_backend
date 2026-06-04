@@ -1,0 +1,157 @@
+{
+  "info": {
+    "_postman_id": "b7e2c9a4-1f3d-4c8a-9e21-ezygutreport01",
+    "name": "Yugayo - Patient Report (PDF Download)",
+    "description": "Clinician/Patient downloadable EzyGut Digestive Health Report (PDF).\n\nHow to use:\n1. Import this file into Postman (Import > File).\n2. Run **Auth > Clinician Sign In** (or **Patient Sign In**) once — the token is saved automatically into the `token` collection variable.\n3. For the clinician download, set the `patientId` collection variable (or it is auto-filled from the Sign In response if you logged in as a patient).\n4. Open the download request and click **Send and Download** (the dropdown arrow next to Send) to save the PDF.\n\nVariables you may want to edit: `baseUrl`, `email`, `password`, `patientId`, `days` (7 or 30).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Clinician Sign In",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Save the JWT so every other request can use {{token}}",
+                  "const res = pm.response.json();",
+                  "const token = res && res.data && res.data.token;",
+                  "if (token) {",
+                  "  pm.collectionVariables.set('token', token);",
+                  "  console.log('Saved token to {{token}}');",
+                  "}",
+                  "pm.test('Signed in', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/signin",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "signin"]
+            },
+            "description": "Sign in as a clinician. On success the `token` collection variable is set automatically."
+          }
+        },
+        {
+          "name": "Patient Sign In",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "const token = res && res.data && res.data.token;",
+                  "const user = res && res.data && res.data.user;",
+                  "if (token) { pm.collectionVariables.set('token', token); }",
+                  "if (user && user._id) { pm.collectionVariables.set('patientId', user._id); }",
+                  "pm.test('Signed in', function () {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/signin",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "signin"]
+            },
+            "description": "Sign in as a patient. Saves `token` and `patientId` automatically."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Patient Report",
+      "item": [
+        {
+          "name": "Download Patient Report (Clinician)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/pdf" }],
+            "url": {
+              "raw": "{{baseUrl}}/report/patient/{{patientId}}?days={{days}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["report", "patient", "{{patientId}}"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "{{days}}",
+                  "description": "7 or 30 (defaults to 7)"
+                }
+              ]
+            },
+            "description": "Clinician downloads a connected patient's EzyGut report as a PDF.\n\nRequires a clinician token (run Clinician Sign In first) and an active connection with the patient.\n\nTip: click the arrow next to **Send** and choose **Send and Download** to save the .pdf file."
+          }
+        },
+        {
+          "name": "Download My Report (Patient)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/pdf" }],
+            "url": {
+              "raw": "{{baseUrl}}/report/me?days={{days}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["report", "me"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "{{days}}",
+                  "description": "7 or 30 (defaults to 7)"
+                }
+              ]
+            },
+            "description": "Patient downloads their own EzyGut report as a PDF.\n\nRequires a patient token (run Patient Sign In first).\n\nTip: click the arrow next to **Send** and choose **Send and Download** to save the .pdf file."
+          }
+        }
+      ]
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "event": [],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000/api/v1",
+      "type": "string"
+    },
+    { "key": "token", "value": "", "type": "string" },
+    {
+      "key": "email",
+      "value": "clinician@example.com",
+      "type": "string"
+    },
+    { "key": "password", "value": "yourPassword123", "type": "string" },
+    {
+      "key": "patientId",
+      "value": "PASTE_PATIENT_OBJECT_ID_HERE",
+      "type": "string"
+    },
+    { "key": "days", "value": "30", "type": "string" }
+  ]
+}
