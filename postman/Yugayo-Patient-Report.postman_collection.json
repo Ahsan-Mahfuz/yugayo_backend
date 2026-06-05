@@ -84,6 +84,29 @@
       ]
     },
     {
+      "name": "Clinician - Patient Data",
+      "item": [
+        {
+          "name": "Get Patient Safe Foods (Clinician)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/clinicians/patients/{{patientId}}/safe-foods",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "clinicians",
+                "patients",
+                "{{patientId}}",
+                "safe-foods"
+              ]
+            },
+            "description": "Clinician views a connected patient's safe foods.\n\nRequires a clinician token (run Clinician Sign In first) and an active connection with the patient.\n\nReturns hasData=false with empty arrays when the patient has not generated safe foods yet."
+          }
+        }
+      ]
+    },
+    {
       "name": "Patient Report",
       "item": [
         {

@@ -106,6 +106,15 @@ router.get(
 );
 
 /**
+ * GET /api/v1/clinicians/patients/:patientId/safe-foods
+ * Safe foods saved for this patient (same data as patient GET /safe-food).
+ */
+router.get(
+  "/patients/:patientId/safe-foods",
+  ClinicianDashboardController.getPatientSafeFoods,
+);
+
+/**
  * GET /api/v1/clinician/patients/:patientId/triggers
  * Query: days (default 30)
  */

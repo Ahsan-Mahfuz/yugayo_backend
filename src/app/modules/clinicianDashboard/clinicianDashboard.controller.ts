@@ -208,6 +208,21 @@ const getPatientFoodNotes = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+// ─── Patient Safe Foods ───────────────────────────────────────────────────────
+const getPatientSafeFoods = catchAsync(async (req: Request, res: Response) => {
+  const clinicianId = getClinicianId(req);
+  const result = await ClinicianDashboardService.getPatientSafeFoods(
+    clinicianId,
+    req.params.patientId,
+  );
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Patient safe foods fetched",
+    data: result,
+  });
+});
+
 export const ClinicianDashboardController = {
   getDashboardSummary,
   getRecentAlerts,
@@ -220,4 +235,5 @@ export const ClinicianDashboardController = {
   getPatientTriggers,
   getPatientWeeklyTrend,
   getPatientFoodNotes,
+  getPatientSafeFoods,
 };

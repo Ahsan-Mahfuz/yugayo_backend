@@ -10,6 +10,7 @@ import { SymptomLogService } from "../symptomLog/symptomLog.service";
 import AppError from "../../error/appError";
 import { FoodTags } from "../foodTags/foodTags.model";
 import { FoodLogService } from "../foodLogs/foodLogs.service";
+import { SafeFood } from "../safeFood/safeFood.model";
 
 // ─── Helper: verify clinician is connected to patient ────────────────────────
 const _verifyConnection = async (clinicianId: string, patientId: string) => {
@@ -640,6 +641,37 @@ const getPatientFoodNotes = async (
   return FoodLogService.getMyFoodNotes(patientId, query);
 };
 
+/** Safe foods saved for this patient (same data as patient GET /safe-food). */
+const getPatientSafeFoods = async (clinicianId: string, patientId: string) => {
+  await _verifyConnection(clinicianId, patientId);
+
+  const doc = await SafeFood.findOne({
+    userId: new Types.ObjectId(patientId),
+  });
+
+  if (!doc) {
+    return {
+      hasData: false,
+      safe_foods: [],
+      foods_analysed: 0,
+      composite_meals_detected: 0,
+      symptoms_considered: 0,
+      source_note: "",
+      generatedAt: null,
+    };
+  }
+
+  return {
+    hasData: true,
+    safe_foods: doc.safe_foods,
+    foods_analysed: doc.foods_analysed,
+    composite_meals_detected: doc.composite_meals_detected,
+    symptoms_considered: doc.symptoms_considered,
+    source_note: doc.source_note,
+    generatedAt: doc.generatedAt,
+  };
+};
+
 // ─── Helper: time ago string ──────────────────────────────────────────────────
 const _timeAgo = (date: Date): string => {
   const diff = Date.now() - new Date(date).getTime();
@@ -665,4 +697,5 @@ export const ClinicianDashboardService = {
   getPatientTriggers,
   getPatientWeeklyTrend,
   getPatientFoodNotes,
+  getPatientSafeFoods,
 };
